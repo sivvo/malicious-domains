@@ -171,7 +171,6 @@ class DomainLookup:
         return dnsresults
 
     def get_DNS_record_results(self):
-        # global IPs
         try:
             # this is a hack but the future_to_domain line isn't working
             domains = []
@@ -186,7 +185,6 @@ class DomainLookup:
                     try:
                         dns_record = future.result()
                         for k, v in dns_record.items():
-                            # print("    \_", k, colored(','.join(v), 'yellow'))
                             for ip in v:
                                 aa = re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
                                 if aa:
