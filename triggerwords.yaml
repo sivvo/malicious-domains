@@ -1,0 +1,70 @@
+# keywords will be matched against similar but not quite the same domains
+keywords:
+    'nationwide': 50
+other:
+    'govuk': 70
+    'ukgov': 70
+    'hmrc': 40
+    'taxrefund': 40
+    'council': 25
+    'government': 25
+    'verify': 25
+
+# static domains are fixed and we won't shape them
+static:
+    'trump': 30
+fuck:
+    'corona': 50
+    'covid': 50
+    'cgi-bin': 50
+    '-com.': 20
+    '.net-': 20
+    '.org-': 20
+    '.com-': 20
+    '.net.': 20
+    '.org.': 20
+    '.com.': 20
+    '.gov-': 30
+    '.gov.': 30
+    '.gouv-': 40
+    '-gouv-': 40
+    '.gouv.': 40
+
+tlds:
+    '.ga':
+    '.gq':
+    '.ml':
+    '.cf':
+    '.tk':
+    '.xyz':
+    '.pw':
+    '.cc':
+    '.club':
+    '.work':
+    '.top':
+    '.support':
+    '.bank':
+    '.info':
+    '.study':
+    '.click':
+    '.country':
+    '.stream':
+    '.gdn':
+    '.mom':
+    '.xin':
+    '.kim':
+    '.men':
+    '.loan':
+    '.download':
+    '.racing':
+    '.online':
+    '.center':
+    '.ren':
+    '.gb':
+    '.win':
+    '.review':
+    '.vip':
+    '.party':
+    '.tech':
+    '.science':
+    '.business':
