@@ -18,7 +18,6 @@ import time
 import datetime
 import math
 import tldextract
-from scipy import stats
 from zipfile import ZipFile
 
 LOG = logging.getLogger('getdomains.log')
