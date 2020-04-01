@@ -1,2 +1,5 @@
+requests
+ipwhois
+whois
 pyyaml
 dnspython

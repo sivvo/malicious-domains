@@ -1,7 +1,5 @@
 # keywords will be matched against similar but not quite the same domains
 keywords:
-    'nationwide': 50
-other:
     'govuk': 70
     'ukgov': 70
     'hmrc': 40
@@ -12,8 +10,6 @@ other:
 
 # static domains are fixed and we won't shape them
 static:
-    'trump': 30
-fuck:
     'corona': 50
     'covid': 50
     'cgi-bin': 50

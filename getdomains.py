@@ -1,5 +1,4 @@
 from __future__ import print_function
-
 import argparse
 import re
 import sys
@@ -10,7 +9,16 @@ import requests
 import logging
 import dns.resolver
 import concurrent.futures
-
+import pprint
+from ipwhois.net import Net
+from ipwhois.asn import IPASN
+import whois
+import Levenshtein
+import time
+import datetime
+import math
+import tldextract
+from scipy import stats
 from zipfile import ZipFile
 
 LOG = logging.getLogger('getdomains.log')
@@ -32,17 +40,205 @@ class MatchedDoman:
     """
     domain: str = ""
     match: str = ""
-    dns_records: list = []
+    dns_records: dict = {}
+    asn_records: dict = {}
+    whois_records: dict = {}
     subdomains: list = []
-    shannon_entry: float = 0.0
+    shannon_entropy: float = 0.0
     levenshtein_ratio: float = 0.0
+    IPs: list = []
 
     def __init__(self, domain, match):
         self.domain = domain
         self.match = match
 
-    def get_domain(self):
+    def __diff_dates(self, date1, date2):
+        return abs((date2 - date1).days)
+
+    def __repr__(self):
         return self.domain
+
+    def enrich(self):
+        # each of the internal methods that gets more data. there is a set sequence on these
+        self.__get_dns_data()
+        self.__get_ip2cidr()
+        self.__get_whois()
+        self.__get_entropy()
+        self.__get_levenshtein()
+
+        pprint.pprint((self.dns_records))
+        pprint.pprint((self.asn_records))
+        pprint.pprint(self.whois_records)  # not working ???
+        print(
+            f"domain: {self.domain} match:{self.match} entropy: {self.shannon_entropy} levenshtein: {self.levenshtein_ratio}")
+
+    def __get_levenshtein(self):
+        ext_domain = tldextract.extract(self.domain)
+        LevWord1 = ext_domain.domain  # domain name
+        LevWord2 = self.match  # the trigger word it matched on
+
+        """ when we want to analyse these... 
+            > 0.8 : Red?
+            > 0.4 : Amber?
+            <0.4 : green?
+        """
+        self.levenshtein_ratio = Levenshtein.ratio(LevWord1, LevWord2)
+
+    def __get_dns_data(self):
+        """
+        get the DNS records for this domain
+        """
+        MX = []
+        NS = []
+        A = []
+        AAAA = []
+        SOA = []
+        CNAME = []
+
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 1
+        resolver.lifetime = 1
+
+        rrtypes = ['A', 'MX', 'NS', 'AAAA', 'SOA']
+        for r in rrtypes:
+            try:
+                answer = resolver.query(self.domain, r)
+                for answer in answer:
+                    if r == 'A':
+                        A.append(answer.address)
+                        self.dns_records.update({r: A})
+                    if r == 'MX':
+                        MX.append(answer.exchange.to_text()[:-1])
+                        self.dns_records.update({r: MX})
+                    if r == 'NS':
+                        NS.append(answer.target.to_text()[:-1])
+                        self.dns_records.update({r: NS})
+                    if r == 'AAAA':
+                        AAAA.append(answer.address)
+                        self.dns_records.update({r: AAAA})
+                    if r == 'SOA':
+                        SOA.append(answer.mname.to_text()[:-1])
+                        self.dns_records.update({r: SOA})
+            except dns.resolver.NXDOMAIN:
+                pass
+            except dns.resolver.NoAnswer:
+                pass
+            except dns.name.EmptyLabel:
+                pass
+            except dns.resolver.NoNameservers:
+                pass
+            except dns.resolver.Timeout:
+                pass
+            except dns.exception.DNSException:
+                pass
+
+        # let's grab the IPs too. maybe these will get moved
+        for k, v in self.dns_records.items():
+            for ip in v:
+                aa = re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
+                if aa:
+                    self.IPs.append(ip)
+
+    def __ip2cidr_lookup(self, ip):
+
+        net = Net(ip)
+        return IPASN(net).lookup()
+
+    def __get_ip2cidr(self):
+        if len(self.IPs) > 0:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.IPs)) as executor:
+                future_to_ip2cidr = {executor.submit(self.__ip2cidr_lookup, ip): ip for ip in self.IPs}
+                for future in concurrent.futures.as_completed(future_to_ip2cidr):
+                    ipaddress = future_to_ip2cidr[future]
+                    data = future.result()
+                    self.asn_records[ipaddress] = data.items()
+
+    def __get_whois(self):
+
+        hack = False
+        try:
+            try:
+                whois_res = whois.query(self.domain)
+            except (whois.exceptions.UnknownTld, whois.exceptions.WhoisCommandFailed) as e:
+                LOG.warning(f"{e} for {self.domain}")
+                # this whois library only supports a small handfull of TLDs...
+                # TODO look at swapping out with another whois library
+                hack = True
+            name = whois_res.name
+        except:
+            if not hack:
+                name = ""
+            else:
+                name = "Unsupported TLD"
+        try:
+            creation_date = whois_res.creation_date
+        except:
+            creation_date = ""
+        try:
+            emails = whois_res.emails
+        except:
+            emails = ""
+        try:
+            registrar = whois_res.registrar
+        except:
+            registrar = ""
+        try:
+            updated_date = whois_res.updated_date
+        except:
+            updated_date = ""
+        try:
+            expiration_date = whois_res.expiration_date
+        except:
+            expiration_date = ""
+
+        current_date = datetime.datetime.now()
+        if isinstance(creation_date, datetime.datetime) or isinstance(expiration_date,
+                                                                      datetime.datetime) or isinstance(updated_date,
+                                                                                                       datetime.datetime):
+            res = self.__diff_dates(current_date, creation_date)
+
+            self.whois_records = {"creation_date": creation_date, \
+                                  "creation_date_diff": res, \
+                                  "emails": emails, \
+                                  "name": name, \
+                                  "registrar": registrar, \
+                                  "updated_date": updated_date, \
+                                  "expiration_date": expiration_date}
+
+        elif isinstance(creation_date, list) or isinstance(expiration_date, list) or isinstance(updated_date, list):
+            creation_date = whois_res.creation_date[0]
+            updated_date = whois_res.updated_date[0]
+            expiration_date = whois_res.expiration_date[0]
+            res = self.__diff_dates(current_date, creation_date)
+
+            self.whois_records = {"creation_date": creation_date, \
+                                  "creation_date_diff": res, \
+                                  "emails": emails, \
+                                  "name": name, \
+                                  "registrar": registrar, \
+                                  "updated_date": updated_date, \
+                                  "expiration_date": expiration_date}
+
+            time.sleep(1)
+
+    def __get_entropy(self):
+        """attempt at implementing a shannons entropy count"""
+
+        str_list = list(self.domain)
+        alphabet = list(set(self.domain))
+        frequecy = []
+        for symbol in alphabet:
+            count = 0
+            for sym in str_list:
+                if sym == symbol:
+                    count += 1
+            frequecy.append(float(count) / len(str_list))
+
+        entropy_score = 0.0
+        for f in frequecy:
+            entropy_score += f * math.log(f, 2)
+        entropy_score = -entropy_score
+        self.shannon_entropy = entropy_score
 
 
 class DomainLookup:
@@ -117,85 +313,14 @@ class DomainLookup:
                     # match = re.search(r"^" + argsearch, row)
                     # if match:
                     #     domains.append(row.strip('\r\n'))
-        self.get_DNS_record_results()
-        # okay now we've got it... what are we gonaa do with it ????
 
-    def __get_dns_data(self, domain):
-        """
-        get the DNS records for this domain
-        """
-        dnsresults = {}
-        MX = []
-        NS = []
-        A = []
-        AAAA = []
-        SOA = []
-        CNAME = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.domains)) as executor:
+            future_to_enrich = {executor.submit(domain.enrich()): domain for domain in self.domains}
+            # for future in concurrent.futures.as_completed(future_to_enrich):
+            #    resp = future_to_enrich[future]
 
-        resolver = dns.resolver.Resolver()
-        resolver.timeout = 1
-        resolver.lifetime = 1
-
-        rrtypes = ['A', 'MX', 'NS', 'AAAA', 'SOA']
-        for r in rrtypes:
-            try:
-                answer = resolver.query(domain, r)
-                for answer in answer:
-                    if r == 'A':
-                        A.append(answer.address)
-                        dnsresults.update({r: A})
-                    if r == 'MX':
-                        MX.append(answer.exchange.to_text()[:-1])
-                        dnsresults.update({r: MX})
-                    if r == 'NS':
-                        NS.append(answer.target.to_text()[:-1])
-                        dnsresults.update({r: NS})
-                    if r == 'AAAA':
-                        AAAA.append(answer.address)
-                        dnsresults.update({r: AAAA})
-                    if r == 'SOA':
-                        SOA.append(answer.mname.to_text()[:-1])
-                        dnsresults.update({r: SOA})
-            except dns.resolver.NXDOMAIN:
-                pass
-            except dns.resolver.NoAnswer:
-                pass
-            except dns.name.EmptyLabel:
-                pass
-            except dns.resolver.NoNameservers:
-                pass
-            except dns.resolver.Timeout:
-                pass
-            except dns.exception.DNSException:
-                pass
-        return dnsresults
-
-    def get_DNS_record_results(self):
-        try:
-            # this is a hack but the future_to_domain line isn't working
-            domains = []
-            for domain in self.domains:
-                domains.append(domain.domain)
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.domains)) as executor:
-                # future_to_domain = {executor.submit(self.__get_dns_data, domain): domain for domain in self.domains.get_domain}
-                future_to_domain = {executor.submit(self.__get_dns_data, domain): domain for domain in domains}
-                for future in concurrent.futures.as_completed(future_to_domain):
-                    dom = future_to_domain[future]
-                    try:
-                        dns_record = future.result()
-                        for k, v in dns_record.items():
-                            for ip in v:
-                                aa = re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
-                                if aa:
-                                    self.IPs.append(ip)
-
-                    except Exception as exc:
-                        LOG.error(f"{dom} exception: {exc}")
-
-        except ValueError:
-            LOG.warning("ValueError exception in get_DNS_record_results")
-            pass
+        # for domain in self.domains:
+        #    domain.enrich()
 
     def __bitsquattng(self, search_word):
         out = []
@@ -259,7 +384,6 @@ if __name__ == '__main__':
     parser.add_argument("-v", action="version", version="%(prog)s v0.1alpha")
     args = parser.parse_args()
     yyyymmdd_regex = re.compile('[\d]{4}-[\d]{2}-[\d]{2}$')
-    IPs = []
     if re.match(yyyymmdd_regex, args.date):
         domain = DomainLookup(args.date)
         #
