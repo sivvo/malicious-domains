@@ -19,6 +19,7 @@ import datetime
 import math
 import tldextract
 from zipfile import ZipFile
+import cProfile
 
 LOG = logging.getLogger('getdomains.log')
 LOG.setLevel(logging.INFO)
@@ -36,7 +37,22 @@ class MatchedDoman:
     """
     An object for holding each matched domain. We can store all of the pertinent data related to this particular domain
     here.
-    """
+    Attributes
+    ----------
+    domain: str
+    match: str
+    dns_records: dict
+    asn_records: dict
+    whois_records: dict
+    subdomains: list
+    shannon_entropy: float
+    levenshtein_ratio:
+    IPs: list
+
+    Methods
+    -------
+    enrich()
+ """
     domain: str = ""
     match: str = ""
     dns_records: dict = {}
@@ -139,9 +155,12 @@ class MatchedDoman:
                     self.IPs.append(ip)
 
     def __ip2cidr_lookup(self, ip):
+        try:
+            net = Net(ip)
+            return IPASN(net).lookup()
+        except:
+            LOG.warning(f"ip2cidr exception {sys.exc_info()[0]}")
 
-        net = Net(ip)
-        return IPASN(net).lookup()
 
     def __get_ip2cidr(self):
         if len(self.IPs) > 0:
@@ -378,8 +397,8 @@ class DomainLookup:
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(prog="getdomains.py",
-                                     description='lokok for matches on a given day')
-    parser.add_argument("-f", action="store", dest='date', help="date [format: year-month-date]", required=True)
+                                     description='look for matches on a given day')
+    parser.add_argument("-d", action="store", dest='date', help="date [format: year-month-date]", required=True)
     parser.add_argument("-v", action="version", version="%(prog)s v0.1alpha")
     args = parser.parse_args()
     yyyymmdd_regex = re.compile('[\d]{4}-[\d]{2}-[\d]{2}$')
