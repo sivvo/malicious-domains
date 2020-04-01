@@ -20,6 +20,7 @@ import math
 import tldextract
 from zipfile import ZipFile
 import cProfile
+import asyncio
 
 LOG = logging.getLogger('getdomains.log')
 LOG.setLevel(logging.INFO)
@@ -73,17 +74,22 @@ class MatchedDoman:
     def __repr__(self):
         return self.domain
 
-    def enrich(self):
+    async def enrich(self):
         # each of the internal methods that gets more data. there is a set sequence on these
+        #print(f"{self}:0")
         self.__get_dns_data()
+        #print(f"{self}:1")
         self.__get_ip2cidr()
-        self.__get_whois()
+        #print(f"{self}:2")
+        # self.__get_whois()
+        #print(f"{self}:3")
         self.__get_entropy()
+        #print(f"{self}:4")
         self.__get_levenshtein()
-
-        pprint.pprint((self.dns_records))
-        pprint.pprint((self.asn_records))
-        pprint.pprint(self.whois_records)  # not working ???
+        #print(f"{self}:5")
+        #pprint.pprint((self.dns_records))
+        #pprint.pprint((self.asn_records))
+        #pprint.pprint(self.whois_records)  # not working ???
         print(
             f"domain: {self.domain} match:{self.match} entropy: {self.shannon_entropy} levenshtein: {self.levenshtein_ratio}")
 
@@ -92,7 +98,7 @@ class MatchedDoman:
         LevWord1 = ext_domain.domain  # domain name
         LevWord2 = self.match  # the trigger word it matched on
 
-        """ when we want to analyse these... 
+        """ when we want to analyse these...
             > 0.8 : Red?
             > 0.4 : Amber?
             <0.4 : green?
@@ -163,13 +169,16 @@ class MatchedDoman:
 
 
     def __get_ip2cidr(self):
-        if len(self.IPs) > 0:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.IPs)) as executor:
-                future_to_ip2cidr = {executor.submit(self.__ip2cidr_lookup, ip): ip for ip in self.IPs}
-                for future in concurrent.futures.as_completed(future_to_ip2cidr):
-                    ipaddress = future_to_ip2cidr[future]
-                    data = future.result()
-                    self.asn_records[ipaddress] = data.items()
+        # if len(self.IPs) > 0:
+            # with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.IPs)) as executor:
+        for ip in self.IPs:
+            data = self.__ip2cidr_lookup(ip)
+            self.asn_records[ip] = data.items()
+                # future_to_ip2cidr = {executor.submit(self.__ip2cidr_lookup, ip): ip for ip in self.IPs}
+                # for future in concurrent.futures.as_completed(future_to_ip2cidr):
+                #     ipaddress = future_to_ip2cidr[future]
+                #     data = future.result()
+
 
     def __get_whois(self):
 
@@ -298,7 +307,7 @@ class DomainLookup:
         # .write(zip.read('))
         # return {name: zip.read(name) for name in zip.namelist()}
 
-    def processmatches(self):
+    async def processmatches(self):
         self.downloaddata()
         # we've got the data
         self.searchdomains = [k for k in self.triggers['keywords']]
@@ -326,14 +335,19 @@ class DomainLookup:
                     domain = row.strip('\r\n')
                     # TODO check that there isn't already a MatchedDomain with a domain matching this domain
                     self.domains.append(MatchedDoman(domain, argsearch))
-                    """ TODO should send the domain into a new parallelisable thread that retrieves the extra info 
+                    """ TODO should send the domain into a new parallelisable thread that retrieves the extra info
                     rather than building a list and then iterating through that again later """
                     # match = re.search(r"^" + argsearch, row)
                     # if match:
                     #     domains.append(row.strip('\r\n'))
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.domains)) as executor:
-            future_to_enrich = {executor.submit(domain.enrich()): domain for domain in self.domains}
+        #d = [self.domains[0]]
+        #print(self.domains)
+        tasks = [domain.enrich() for domain in self.domains]
+        await asyncio.gather(*tasks)
+
+        # with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.domains)) as executor:
+        #     future_to_enrich = {executor.submit(domain.enrich()): domain for domain in self.domains}
             # for future in concurrent.futures.as_completed(future_to_enrich):
             #    resp = future_to_enrich[future]
 
@@ -394,8 +408,9 @@ class DomainLookup:
             LOG.debug("data file already available")
 
 
-if __name__ == '__main__':
 
+
+async def main():
     parser = argparse.ArgumentParser(prog="getdomains.py",
                                      description='look for matches on a given day')
     parser.add_argument("-d", action="store", dest='date', help="date [format: year-month-date]", required=True)
@@ -405,8 +420,11 @@ if __name__ == '__main__':
     if re.match(yyyymmdd_regex, args.date):
         domain = DomainLookup(args.date)
         #
-        domain.processmatches()
+        await domain.processmatches()
 
     else:
         print(f"Invalid date format, use yyyy-mm-dd format")
         sys.exit()
+
+if __name__ == '__main__':
+    asyncio.run(main())
