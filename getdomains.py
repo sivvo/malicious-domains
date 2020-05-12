@@ -21,6 +21,7 @@ import tldextract
 from zipfile import ZipFile
 import cProfile
 import asyncio
+import timeit
 
 LOG = logging.getLogger('getdomains.log')
 LOG.setLevel(logging.INFO)
@@ -75,24 +76,47 @@ class MatchedDoman:
         return self.domain
 
     async def enrich(self):
+
         # each of the internal methods that gets more data. there is a set sequence on these
         #print(f"{self}:0")
+        start_time = time.time()
         self.__get_dns_data()
+        end_time = time.time()
+        #LOG.info(f"__get_dns_data: {end_time - start_time}")
+
         #print(f"{self}:1")
+        start_time = time.time()
         self.__get_ip2cidr()
+        end_time = time.time()
+        #LOG.info(f"__get_ip2cidr: {end_time - start_time}")
+
         #print(f"{self}:2")
-        # self.__get_whois()
+        start_time = time.time()
+        self.__get_whois()
+        end_time = time.time()
+        #LOG.info(f"__get_whois: {end_time - start_time}")
+
         #print(f"{self}:3")
+        start_time = time.time()
         self.__get_entropy()
+        end_time = time.time()
+        #LOG.info(f"__get_entropy: {end_time - start_time}")
+
         #print(f"{self}:4")
+        start_time = time.time()
         self.__get_levenshtein()
+        end_time = time.time()
+        #LOG.info(f"__get_levenshtein: {end_time - start_time}")
+        print(self.domain)
+
         #print(f"{self}:5")
         #pprint.pprint((self.dns_records))
         #pprint.pprint((self.asn_records))
         #pprint.pprint(self.whois_records)  # not working ???
-        print(
-            f"domain: {self.domain} match:{self.match} entropy: {self.shannon_entropy} levenshtein: {self.levenshtein_ratio}")
-
+        #print(
+        #    f"domain: {self.domain} match:{self.match} entropy: {self.shannon_entropy} levenshtein: {self.levenshtein_ratio}")
+        pass
+    
     def __get_levenshtein(self):
         ext_domain = tldextract.extract(self.domain)
         LevWord1 = ext_domain.domain  # domain name
@@ -387,6 +411,7 @@ class DomainLookup:
         LOG.debug(sys._getframe().f_code.co_name)
         LOG.debug(f"downloaddata {searchdate}")
         if not os.path.isfile(searchdate + ".zip"):
+            start_time = time.time()
             LOG.debug(f"file not found so let's try to download it")
             # file doesn't exist
             b64 = base64.b64encode((searchdate + ".zip").encode('ascii'))
@@ -399,6 +424,8 @@ class DomainLookup:
                     with open(searchdate + ".zip", 'wb') as f:
                         for data in resp.iter_content(chunk_size=1024):
                             f.write(data)
+                    end_time = time.time()
+                    LOG.info(f"download took {end_time-start_time}")
                 else:
                     LOG.fatal("couldn't download file... maybe it doesn't exist on the remote server")
                     raise SystemExit("couldn't download file... maybe it doesn't exist on the remote server")
@@ -427,4 +454,6 @@ async def main():
         sys.exit()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    #asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    result = loop.run_until_complete(main())
