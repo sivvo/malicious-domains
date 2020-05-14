@@ -1,17 +1,16 @@
 # keywords will be matched against similar but not quite the same domains
 keywords:
-    'govuk': 70
-    'ukgov': 70
-    'hmrc': 40
-    'taxrefund': 40
-    'council': 25
-    'government': 25
+    'govuk': 60
+    'ukgov': 60
+    'hmrc': 70
+    'taxrefund': 70
+    'dvla': 70
+    'council': 20
+    'government': 20
     'verify': 25
 
 # static domains are fixed and we won't shape them
 static:
-    'corona': 50
-    'covid': 50
     'cgi-bin': 50
     '-com.': 20
     '.net-': 20
@@ -25,7 +24,9 @@ static:
     '.gouv-': 40
     '-gouv-': 40
     '.gouv.': 40
-
+ignore:
+    'corona': 50
+    'covid': 50
 tlds:
     '.ga':
     '.gq':

@@ -18,8 +18,10 @@ import time
 import datetime
 import math
 import tldextract
+from tld import get_tld
 from zipfile import ZipFile
 import cProfile
+from confusables import unconfuse
 
 LOG = logging.getLogger('getdomains.log')
 LOG.setLevel(logging.INFO)
@@ -31,6 +33,19 @@ LOG.addHandler(hdlr)
 LOG.addHandler(logging.StreamHandler())
 
 triggerwords_yaml = os.path.dirname(os.path.realpath(__file__)) + '/triggerwords.yaml'
+SCORES = {}
+TLDS = []
+try:
+    with open(triggerwords_yaml, 'r') as f:
+        config = yaml.safe_load(f)
+        # pprint.pprint(config)
+    for key, value in config['keywords'].items():
+        SCORES[key] = value
+    for key, value in config['static'].items():
+        SCORES[key] = value
+    TLDS = config[tlds]
+except:
+    pass
 
 
 class MatchedDoman:
@@ -47,6 +62,7 @@ class MatchedDoman:
     subdomains: list
     shannon_entropy: float
     levenshtein_ratio:
+    levenshtein_distance
     IPs: list
 
     Methods
@@ -61,6 +77,7 @@ class MatchedDoman:
     subdomains: list = []
     shannon_entropy: float = 0.0
     levenshtein_ratio: float = 0.0
+    levenshtein_distance: float = 0.0
     IPs: list = []
 
     def __init__(self, domain, match):
@@ -75,17 +92,85 @@ class MatchedDoman:
 
     def enrich(self):
         # each of the internal methods that gets more data. there is a set sequence on these
-        self.__get_dns_data()
-        self.__get_ip2cidr()
-        self.__get_whois()
+        # self.__get_dns_data()
+        # pprint.pprint((self.dns_records))
+        # self.__get_ip2cidr()
+        # pprint.pprint((self.asn_records))
+        # self.__get_whois()  this is too slow. we need to find a reason to run who_is
+        # pprint.pprint(self.whois_records)  # not working ???
+        # let's see which score high enough to look into
+        score = 0
+        for t in TLDS:
+            if self.domain.endswith(t):
+                score += 20
+        # Removing TLD to catch inner TLD in subdomain (ie. paypal.com.otherdomain.com)
+        try:
+            res = get_tld(self.domain, as_object=True, fail_silently=True, fix_protocol=True)
+            domain_without_outer_tld = '.'.join([res.subdomain, res.domain])
+        except Exception:
+            domain_without_outer_tld = ""
+            pass
+
         self.__get_entropy()
+        score += int(round(self.shannon_entropy * 50))
+
+        # Remove lookalike characters using list from http://www.unicode.org/reports/tr39
+        unconfused_domain_without_tld = unconfuse(domain_without_outer_tld)
+        #print(f"domain:{self.domain},innertld:{domain_without_outer_tld},unconfuse:{unconfused_domain_without_tld}")
+        # at this point we've stripped off the outer TLD and unconfused the domain.
+        words_in_domain = re.split("\W+", unconfused_domain_without_tld)
+
+        # look for fake, hidden .coms ie. govuk.com-account-management.info
+        if words_in_domain[0] in ['com', 'net', 'org']:
+            score += 10
+
+        # score the word based on triggerwords.yaml
+        for word in SCORES:
+            if word in unconfused_domain_without_tld:
+                score += SCORES[word]        
+        #================
         self.__get_levenshtein()
 
-        pprint.pprint((self.dns_records))
-        pprint.pprint((self.asn_records))
-        pprint.pprint(self.whois_records)  # not working ???
+        """
+        TODO- figure out
+        # compare the domain against the strong match words
+        # aka hmrc, taxrefund, dvla
+        for key in [k for (k,s) in SCORES.items() if s >= 70]:
+            # this isn't going to be effecticve for overly generic words like 'email'
+            for word in [w for w in words_in_domain if w not in ['email', 'mail', 'cloud']]:
+                #LOG.info(f"word:{word}")
+                #LOG.info(f"key:{key}")
+                if Levenshtein.distance(str(word), str(key)) == 1:
+                    score += 70
+        """
+
         print(
-            f"domain: {self.domain} match:{self.match} entropy: {self.shannon_entropy} levenshtein: {self.levenshtein_ratio}")
+            f"domain: {self.domain} score:{score} match:{self.match} entropy: {self.shannon_entropy} levenshtein ratio: {self.levenshtein_ratio} L-distance: {self.levenshtein_distance}")
+        # we need to decide how to filter this list.
+        # many won't be malicious
+
+
+        """ Lev
+            when we want to analyse these... 
+            > 0.8 : Red?
+            > 0.4 : Amber?
+            <0.4 : green?
+        """
+        """
+            shannon
+            >4:     red
+            3.5-4:  amber
+        """
+        # malicious TLD - add 20
+        #     # Removing TLD to catch inner TLD in subdomain (ie. paypal.com.domain.com)
+        """
+        try:
+            res = get_tld(domain, as_object=True, fail_silently=True, fix_protocol=True)
+            domain = '.'.join([res.subdomain, res.domain])
+        except Exception:
+            pass
+        """
+        #   score += int(round(entropy.shannon_entropy(domain)*50))
 
     def __get_levenshtein(self):
         ext_domain = tldextract.extract(self.domain)
@@ -98,6 +183,7 @@ class MatchedDoman:
             <0.4 : green?
         """
         self.levenshtein_ratio = Levenshtein.ratio(LevWord1, LevWord2)
+        self.levenshtein_distance = Levenshtein.distance(LevWord1, LevWord2)
 
     def __get_dns_data(self):
         """
@@ -160,7 +246,6 @@ class MatchedDoman:
             return IPASN(net).lookup()
         except:
             LOG.warning(f"ip2cidr exception {sys.exc_info()[0]}")
-
 
     def __get_ip2cidr(self):
         if len(self.IPs) > 0:
