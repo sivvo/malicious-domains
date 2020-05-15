@@ -47,8 +47,7 @@ try:
 except:
     pass
 
-
-class MatchedDoman:
+class MatchedDomain:
     """
     An object for holding each matched domain. We can store all of the pertinent data related to this particular domain
     here.
@@ -60,6 +59,7 @@ class MatchedDoman:
     asn_records: dict
     whois_records: dict
     subdomains: list
+    score: int
     shannon_entropy: float
     levenshtein_ratio:
     levenshtein_distance
@@ -78,6 +78,7 @@ class MatchedDoman:
     shannon_entropy: float = 0.0
     levenshtein_ratio: float = 0.0
     levenshtein_distance: float = 0.0
+    score: int = 0
     IPs: list = []
 
     def __init__(self, domain, match):
@@ -88,7 +89,7 @@ class MatchedDoman:
         return abs((date2 - date1).days)
 
     def __repr__(self):
-        return self.domain
+        return repr((self.domain, self.domain, self.score, self.match, self.shannon_entropy, self.levenshtein_ratio, self.levenshtein_distance))
 
     def enrich(self):
         # each of the internal methods that gets more data. there is a set sequence on these
@@ -131,8 +132,7 @@ class MatchedDoman:
         #================
         self.__get_levenshtein()
 
-        """
-        TODO- figure out
+        # TODO- figure out
         # compare the domain against the strong match words
         # aka hmrc, taxrefund, dvla
         for key in [k for (k,s) in SCORES.items() if s >= 70]:
@@ -142,10 +142,19 @@ class MatchedDoman:
                 #LOG.info(f"key:{key}")
                 if Levenshtein.distance(str(word), str(key)) == 1:
                     score += 70
-        """
 
-        print(
-            f"domain: {self.domain} score:{score} match:{self.match} entropy: {self.shannon_entropy} levenshtein ratio: {self.levenshtein_ratio} L-distance: {self.levenshtein_distance}")
+        # Lots of hyphens '-'
+        if 'xn--' not in self.domain and self.domain.count('-') >= 4:
+            score += self.domain.count('-') * 3
+
+        # Deeply nested subdomains (ie. www.paypal.com.security.accountupdate.gq)
+        if self.domain.count('.') >= 3:
+            score += self.domain.count('.') * 3
+
+        self.score = score
+        #print(
+        #    f"domain:{self.domain},score:{score},matched on:{self.match},entropy:{self.shannon_entropy},levenshtein ratio:{self.levenshtein_ratio},Levenshtein distance:{self.levenshtein_distance}")
+
         # we need to decide how to filter this list.
         # many won't be malicious
 
@@ -410,7 +419,7 @@ class DomainLookup:
                     LOG.debug(f"matched {argsearch} in {row}")
                     domain = row.strip('\r\n')
                     # TODO check that there isn't already a MatchedDomain with a domain matching this domain
-                    self.domains.append(MatchedDoman(domain, argsearch))
+                    self.domains.append(MatchedDomain(domain, argsearch))
                     """ TODO should send the domain into a new parallelisable thread that retrieves the extra info 
                     rather than building a list and then iterating through that again later """
                     # match = re.search(r"^" + argsearch, row)
@@ -420,10 +429,9 @@ class DomainLookup:
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.domains)) as executor:
             future_to_enrich = {executor.submit(domain.enrich()): domain for domain in self.domains}
             # for future in concurrent.futures.as_completed(future_to_enrich):
-            #    resp = future_to_enrich[future]
-
-        # for domain in self.domains:
-        #    domain.enrich()
+            #    resp = future_to_enrich[future]        
+        sorted(self.domains, key=lambda score: MatchedDomain.score)   # sort by score
+        pprint.pprint(sorted)
 
     def __bitsquattng(self, search_word):
         out = []

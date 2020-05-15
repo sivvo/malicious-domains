@@ -3,3 +3,6 @@ ipwhois
 whois
 pyyaml
 dnspython
+python-Levenshtein
+tld
+tldextract

@@ -7,7 +7,7 @@ keywords:
     'dvla': 70
     'council': 20
     'government': 20
-    'verify': 25
+    'verify': 10
 
 # static domains are fixed and we won't shape them
 static:
