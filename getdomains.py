@@ -466,13 +466,10 @@ class DomainLookup:
     def __checkURL(self, domainToCheck):
         print(f"Checking url for {domainToCheck}")
         r = requests.get(f'https://csa.staging.gds-cyber-security.digital/checkdomain/?url=https://{domainToCheck}',
-                         auth=self.BearerAuth('ADD YOUR BEARER TOKEN'))
+                         auth=self.BearerAuth('2f2b6449c21a6bfd9fa181f9dd30b72991b6d2b2'))
         print(r.status_code)
         print(r.text)
         #pprint(r)
-
-    "Authorization: Bearer 2f2b6449c21a6bfd9fa181f9dd30b72991b6d2b2"
-
 
     def __bitsquattng(self, search_word):
         out = []
