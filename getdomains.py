@@ -89,7 +89,7 @@ class MatchedDomain:
         return abs((date2 - date1).days)
 
     def __repr__(self):
-        return repr((self.domain, self.domain, self.score, self.match, self.shannon_entropy, self.levenshtein_ratio, self.levenshtein_distance))
+        return repr((self.domain,  self.score, self.match, self.shannon_entropy, self.levenshtein_ratio, self.levenshtein_distance))
 
     def enrich(self):
         # each of the internal methods that gets more data. there is a set sequence on these
@@ -104,7 +104,7 @@ class MatchedDomain:
         for t in TLDS:
             if self.domain.endswith(t):
                 score += 20
-        # Removing TLD to catch inner TLD in subdomain (ie. paypal.com.otherdomain.com)
+        # Removing TLD to catch inner TLD in subdomain (ie. passportoffice.gov.uk-otherdomain.com)
         try:
             res = get_tld(self.domain, as_object=True, fail_silently=True, fix_protocol=True)
             domain_without_outer_tld = '.'.join([res.subdomain, res.domain])
@@ -113,7 +113,8 @@ class MatchedDomain:
             pass
 
         self.__get_entropy()
-        score += int(round(self.shannon_entropy * 50))
+        # TODO this is a lazy calculation. Should we should base it on actual entropy?
+        score += int(round(self.shannon_entropy * 10))
 
         # Remove lookalike characters using list from http://www.unicode.org/reports/tr39
         unconfused_domain_without_tld = unconfuse(domain_without_outer_tld)
@@ -130,6 +131,8 @@ class MatchedDomain:
             if word in unconfused_domain_without_tld:
                 score += SCORES[word]        
         #================
+        # TODO calculate score based on lev
+        # do we even need this check, since we're not using the output below....
         self.__get_levenshtein()
 
         # TODO- figure out
@@ -430,9 +433,25 @@ class DomainLookup:
             future_to_enrich = {executor.submit(domain.enrich()): domain for domain in self.domains}
             # for future in concurrent.futures.as_completed(future_to_enrich):
             #    resp = future_to_enrich[future]        
-        sorted(self.domains, key=lambda score: MatchedDomain.score)   # sort by score
-        pprint.pprint(sorted)
+        #print(type(self.domains))
+        filtered_list = list(filter(lambda domains: domains.score > 60, self.domains))
+        #self.domains.sort(key=lambda domains: domains.score)   # sort by score
+        filtered_list.sort(key=lambda domains: domains.score)
+        print(type(filtered_list))
+        domains = []
+#        for row in filtered_list:
+#            print(type(row))
+#            domains.append(row.domain)
+#            domain = row.domain
+            #self.__checkURL(domain)
+        #pprint.pprint(self.domains)
+        #pprint.pprint(filtered_list)
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(filtered_list)) as executor:
+            future_to_enrich = {executor.submit(self.__checkURL()): domain for domain in filtered_list}
+
+    def __checkURL(self, domainToCheck):
+        print(f"Checking url for {domainToCheck}")
     def __bitsquattng(self, search_word):
         out = []
         masks = [1, 2, 4, 8, 16, 32, 64, 128]
@@ -469,12 +488,15 @@ class DomainLookup:
             LOG.debug(f"file not found so let's try to download it")
             # file doesn't exist
             b64 = base64.b64encode((searchdate + ".zip").encode('ascii'))
-            nrd_zip = 'https://whoisds.com//whois-database/newly-registered-domains/{}/nrd'.format(
+            nrd_zip = 'https://www.whoisdownload.com/download-panel/free-download-file/{}/nrd/home'.format(
                 b64.decode('ascii'))
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36"}
             try:
-                resp = requests.get(nrd_zip, stream=True)
+                resp = requests.get(nrd_zip, stream=True, headers=headers)
                 if len(resp.content) > 0:
-                    LOG.info(f"Downloading File {searchdate}.zip - Size {resp.headers['Content-length']}...")
+                    #LOG.info(f"Downloading File {searchdate}.zip - Size {resp.headers['Content-length']}...")
+                    LOG.info(f"Downloading File {searchdate}.zip - Size {len(resp.content)}...")
                     with open(searchdate + ".zip", 'wb') as f:
                         for data in resp.iter_content(chunk_size=1024):
                             f.write(data)
@@ -485,7 +507,6 @@ class DomainLookup:
                 raise SystemExit(e)
         else:
             LOG.debug("data file already available")
-
 
 if __name__ == '__main__':
 

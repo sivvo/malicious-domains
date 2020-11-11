@@ -19,8 +19,8 @@ static:
     '.net.': 20
     '.org.': 20
     '.com.': 20
-    '.gov-': 30
-    '.gov.': 30
+    '.gov-': 40
+    '.gov.': 40
     '.gouv-': 40
     '-gouv-': 40
     '.gouv.': 40
