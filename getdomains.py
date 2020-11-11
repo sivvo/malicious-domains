@@ -466,7 +466,7 @@ class DomainLookup:
     def __checkURL(self, domainToCheck):
         print(f"Checking url for {domainToCheck}")
         r = requests.get(f'https://csa.staging.gds-cyber-security.digital/checkdomain/?url=https://{domainToCheck}',
-                         auth=self.BearerAuth('2f2b6449c21a6bfd9fa181f9dd30b72991b6d2b2'))
+                         auth=self.BearerAuth(''))
         print(r.status_code)
         print(r.text)
         #pprint(r)
