@@ -440,18 +440,40 @@ class DomainLookup:
         print(type(filtered_list))
         domains = []
 #        for row in filtered_list:
+#            checkurl = self.__checkURL(row.domain)
+#            result = executor.submit(checkurl)
 #            print(type(row))
 #            domains.append(row.domain)
 #            domain = row.domain
-            #self.__checkURL(domain)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(filtered_list)) as executor:
+                future_to_enrich = {executor.submit(self.__checkURL(domain.domain)): domain for domain in filtered_list}
+
+    #self.__checkURL(domain)
         #pprint.pprint(self.domains)
         #pprint.pprint(filtered_list)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(filtered_list)) as executor:
-            future_to_enrich = {executor.submit(self.__checkURL()): domain for domain in filtered_list}
+#        with concurrent.futures.ThreadPoolExecutor(max_workers=len(filtered_list)) as executor:
+#            future_to_enrich = {executor.submit(self.__checkURL()): domain for domain in filtered_list}
+
+    class BearerAuth(requests.auth.AuthBase):
+        def __init__(self, token):
+            self.token = token
+
+        def __call__(self, r):
+            r.headers["authorization"] = "Bearer " + self.token
+            return r
 
     def __checkURL(self, domainToCheck):
         print(f"Checking url for {domainToCheck}")
+        r = requests.get(f'https://csa.staging.gds-cyber-security.digital/checkdomain/?url=https://{domainToCheck}',
+                         auth=self.BearerAuth('ADD YOUR BEARER TOKEN'))
+        print(r.status_code)
+        print(r.text)
+        #pprint(r)
+
+    "Authorization: Bearer 2f2b6449c21a6bfd9fa181f9dd30b72991b6d2b2"
+
+
     def __bitsquattng(self, search_word):
         out = []
         masks = [1, 2, 4, 8, 16, 32, 64, 128]
