@@ -23,6 +23,7 @@ from zipfile import ZipFile
 import cProfile
 from confusables import unconfuse
 
+BEARER_TOKEN = os.getenv('BEARER_TOKEN')
 LOG = logging.getLogger('getdomains.log')
 LOG.setLevel(logging.INFO)
 FORMATTER = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
@@ -460,15 +461,18 @@ class DomainLookup:
             self.token = token
 
         def __call__(self, r):
-            r.headers["authorization"] = "Bearer " + self.token
+            r.headers["authorization"] = "Bearer " + BEARER_TOKEN
             return r
 
     def __checkURL(self, domainToCheck):
-        print(f"Checking url for {domainToCheck}")
-        r = requests.get(f'https://csa.staging.gds-cyber-security.digital/checkdomain/?url=https://{domainToCheck}',
-                         auth=self.BearerAuth(''))
-        print(r.status_code)
-        print(r.text)
+        if BEARER_TOKEN is None:
+            print(f"Bearer token hasn't been set, cannot call the API")
+        else:
+            print(f"Checking url for {domainToCheck}")
+            r = requests.get(f'https://csa.staging.gds-cyber-security.digital/checkdomain/?url=https://{domainToCheck}',
+                             auth=self.BearerAuth(BEARER_TOKEN))
+            print(r.status_code)
+            print(r.text)
         #pprint(r)
 
     def __bitsquattng(self, search_word):
