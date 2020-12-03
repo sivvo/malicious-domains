@@ -1,39 +1,23 @@
 from __future__ import print_function
-import argparse
-import re
-import sys
-import yaml
-import os
-import base64
-import requests
-import logging
-import dns.resolver
-import concurrent.futures
-import pprint
-from ipwhois.net import Net
-from ipwhois.asn import IPASN
 import whois
 import Levenshtein
-import time
-import datetime
+import os
+from confusables import unconfuse
+from ipwhois.net import Net
+from ipwhois.asn import IPASN
 import math
 import tldextract
 from tld import get_tld
-from zipfile import ZipFile
-import cProfile
-from confusables import unconfuse
-
-BEARER_TOKEN = os.getenv('BEARER_TOKEN')
-LOG = logging.getLogger('getdomains.log')
-LOG.setLevel(logging.INFO)
-FORMATTER = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-hdlr = logging.FileHandler('getdomains.log')
-hdlr.setFormatter(FORMATTER)
-hdlr.setLevel(logging.INFO)
-LOG.addHandler(hdlr)
-LOG.addHandler(logging.StreamHandler())
+import re
+import concurrent.futures
+import dns.resolver
+import pprint
+import time
+import datetime
+import yaml
 
 triggerwords_yaml = os.path.dirname(os.path.realpath(__file__)) + '/triggerwords.yaml'
+
 SCORES = {}
 TLDS = []
 try:
@@ -130,7 +114,7 @@ class MatchedDomain:
         # score the word based on triggerwords.yaml
         for word in SCORES:
             if word in unconfused_domain_without_tld:
-                score += SCORES[word]        
+                score += SCORES[word]
         #================
         # TODO calculate score based on lev
         # do we even need this check, since we're not using the output below....
@@ -355,195 +339,3 @@ class MatchedDomain:
             entropy_score += f * math.log(f, 2)
         entropy_score = -entropy_score
         self.shannon_entropy = entropy_score
-
-
-class DomainLookup:
-    """
-    Initialise the class with a date in the format YYYY-mm-dd
-    Methods: processmatches
-
-    """
-    triggers: dict = {}
-    searchdomains: list = []
-    datafile = ""
-    searchdate = ""
-    tmpfile = ""
-    domains: list = []
-    IPs: list = []
-
-    def __init__(self, searchdate):
-        self.searchdate = searchdate
-        try:
-            with open(triggerwords_yaml, 'r') as f:
-                self.triggers = yaml.safe_load(f)
-        except FileNotFoundError:
-            LOG.fatal("triggerwords.yaml not found... aborting")
-            raise SystemExit("triggerwords.yaml not found... aborting")
-
-    def __openfile(self):
-        file = f"{self.searchdate}.zip"
-        # we need to unzip it
-        zip = ZipFile(file)
-        try:
-            zip.extractall()
-        except:
-            LOG.critical("Domain list is not a valid zip file")
-            raise SystemExit()
-        return open('domain-names.txt', 'r')
-
-        # commented out because it doesn't work... I was trying to write it into a tempfile
-        # return zip.read('domain-names.txt')
-        # .write(zip.read('))
-        # return {name: zip.read(name) for name in zip.namelist()}
-
-    def processmatches(self):
-        self.downloaddata()
-        # we've got the data
-        self.searchdomains = [k for k in self.triggers['keywords']]
-        # we've got the keywords
-
-        for trigger in self.triggers['keywords']:
-            # let's look for similar but different versions of the keyword list
-            bitsquatting_search = self.__bitsquattng(trigger)
-            hyphenation_search = self.__hyphenation(trigger)
-            subdomain_search = self.__subdomain(trigger)
-            # TODO: punycode?
-            self.searchdomains += bitsquatting_search + hyphenation_search + subdomain_search
-        # now let's append our static domains that we didn't want to generate variants for
-        self.searchdomains += [k for k in self.triggers['static']]
-        self.searchdomains.sort()
-        LOG.debug(f"searching for matches against the following domain set {self.searchdomains}")
-        fh = self.__openfile()
-
-        for row in fh:
-            # for each row in the file
-            for argsearch in self.searchdomains:
-                LOG.debug(f"matching against this arg: {argsearch}")
-                if argsearch in row:
-                    LOG.debug(f"matched {argsearch} in {row}")
-                    domain = row.strip('\r\n')
-                    # TODO check that there isn't already a MatchedDomain with a domain matching this domain
-                    self.domains.append(MatchedDomain(domain, argsearch))
-                    """ TODO should send the domain into a new parallelisable thread that retrieves the extra info 
-                    rather than building a list and then iterating through that again later """
-                    # match = re.search(r"^" + argsearch, row)
-                    # if match:
-                    #     domains.append(row.strip('\r\n'))
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.domains)) as executor:
-            future_to_enrich = {executor.submit(domain.enrich()): domain for domain in self.domains}
-            # for future in concurrent.futures.as_completed(future_to_enrich):
-            #    resp = future_to_enrich[future]        
-        #print(type(self.domains))
-        filtered_list = list(filter(lambda domains: domains.score > 60, self.domains))
-        #self.domains.sort(key=lambda domains: domains.score)   # sort by score
-        filtered_list.sort(key=lambda domains: domains.score)
-        print(type(filtered_list))
-        domains = []
-#        for row in filtered_list:
-#            checkurl = self.__checkURL(row.domain)
-#            result = executor.submit(checkurl)
-#            print(type(row))
-#            domains.append(row.domain)
-#            domain = row.domain
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(filtered_list)) as executor:
-                future_to_enrich = {executor.submit(self.__checkURL(domain.domain)): domain for domain in filtered_list}
-
-    #self.__checkURL(domain)
-        #pprint.pprint(self.domains)
-        #pprint.pprint(filtered_list)
-
-#        with concurrent.futures.ThreadPoolExecutor(max_workers=len(filtered_list)) as executor:
-#            future_to_enrich = {executor.submit(self.__checkURL()): domain for domain in filtered_list}
-
-    class BearerAuth(requests.auth.AuthBase):
-        def __init__(self, token):
-            self.token = token
-
-        def __call__(self, r):
-            r.headers["authorization"] = "Bearer " + BEARER_TOKEN
-            return r
-
-    def __checkURL(self, domainToCheck):
-        if BEARER_TOKEN is None:
-            print(f"Bearer token hasn't been set, cannot call the API")
-        else:
-            print(f"Checking url for {domainToCheck}")
-            r = requests.get(f'https://csa.staging.gds-cyber-security.digital/checkdomain/?url=https://{domainToCheck}',
-                             auth=self.BearerAuth(BEARER_TOKEN))
-            print(r.status_code)
-            print(r.text)
-        #pprint(r)
-
-    def __bitsquattng(self, search_word):
-        out = []
-        masks = [1, 2, 4, 8, 16, 32, 64, 128]
-
-        for i in range(0, len(search_word)):
-            c = search_word[i]
-            for j in range(0, len(masks)):
-                b = chr(ord(c) ^ masks[j])
-                o = ord(b)
-                if (o >= 48 and o <= 57) or (o >= 97 and o <= 122) or o == 45:
-                    out.append(search_word[:i] + b + search_word[i + 1:])
-        return out
-
-    def __hyphenation(self, search_word):
-        LOG.debug(f"__hyphenation( {search_word} )")
-        out = []
-        for i in range(1, len(search_word)):
-            out.append(search_word[:i] + '-' + search_word[i:])
-        return out
-
-    def __subdomain(self, search_word):
-        LOG.debug(f"__subdomain( {search_word} )")
-        out = []
-        for i in range(1, len(search_word)):
-            if search_word[i] not in ['-', '.'] and search_word[i - 1] not in ['-', '.']:
-                out.append(search_word[:i] + '.' + search_word[i:])
-        return out
-
-    def downloaddata(self):
-        searchdate = self.searchdate
-        LOG.debug(sys._getframe().f_code.co_name)
-        LOG.debug(f"downloaddata {searchdate}")
-        if not os.path.isfile(searchdate + ".zip"):
-            LOG.debug(f"file not found so let's try to download it")
-            # file doesn't exist
-            b64 = base64.b64encode((searchdate + ".zip").encode('ascii'))
-            nrd_zip = 'https://www.whoisdownload.com/download-panel/free-download-file/{}/nrd/home'.format(
-                b64.decode('ascii'))
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36"}
-            try:
-                resp = requests.get(nrd_zip, stream=True, headers=headers)
-                if len(resp.content) > 0:
-                    #LOG.info(f"Downloading File {searchdate}.zip - Size {resp.headers['Content-length']}...")
-                    LOG.info(f"Downloading File {searchdate}.zip - Size {len(resp.content)}...")
-                    with open(searchdate + ".zip", 'wb') as f:
-                        for data in resp.iter_content(chunk_size=1024):
-                            f.write(data)
-                else:
-                    LOG.fatal("couldn't download file... maybe it doesn't exist on the remote server")
-                    raise SystemExit("couldn't download file... maybe it doesn't exist on the remote server")
-            except requests.exceptions.RequestException as e:
-                raise SystemExit(e)
-        else:
-            LOG.debug("data file already available")
-
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser(prog="getdomains.py",
-                                     description='look for matches on a given day')
-    parser.add_argument("-d", action="store", dest='date', help="date [format: year-month-date]", required=True)
-    parser.add_argument("-v", action="version", version="%(prog)s v0.1alpha")
-    args = parser.parse_args()
-    yyyymmdd_regex = re.compile('[\d]{4}-[\d]{2}-[\d]{2}$')
-    if re.match(yyyymmdd_regex, args.date):
-        domain = DomainLookup(args.date)
-        #
-        domain.processmatches()
-
-    else:
-        print(f"Invalid date format, use yyyy-mm-dd format")
-        sys.exit()
